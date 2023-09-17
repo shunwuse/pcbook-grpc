@@ -15,4 +15,13 @@ make clean
 
 # run program
 make run
+
+# run server
+make server
+
+# run client
+make client
+
+# run unit test
+make test
 ```
