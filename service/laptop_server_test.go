@@ -28,34 +28,34 @@ func TestServerCreateLaptop(t *testing.T) {
 	require.Nil(t, err)
 
 	testCases := []struct {
-		name   string
-		laptop *pb.Laptop
-		store  service.LaptopStore
-		code   codes.Code
+		name        string
+		laptop      *pb.Laptop
+		laptopStore service.LaptopStore
+		code        codes.Code
 	}{
 		{
-			name:   "success_with_id",
-			laptop: sample.NewLaptop(),
-			store:  service.NewInMemoryLaptopStore(),
-			code:   codes.OK,
+			name:        "success_with_id",
+			laptop:      sample.NewLaptop(),
+			laptopStore: service.NewInMemoryLaptopStore(),
+			code:        codes.OK,
 		},
 		{
-			name:   "success_without_id",
-			laptop: laptopNoId,
-			store:  service.NewInMemoryLaptopStore(),
-			code:   codes.OK,
+			name:        "success_without_id",
+			laptop:      laptopNoId,
+			laptopStore: service.NewInMemoryLaptopStore(),
+			code:        codes.OK,
 		},
 		{
-			name:   "failure_invalid_id",
-			laptop: laptopIncalidId,
-			store:  service.NewInMemoryLaptopStore(),
-			code:   codes.InvalidArgument,
+			name:        "failure_invalid_id",
+			laptop:      laptopIncalidId,
+			laptopStore: service.NewInMemoryLaptopStore(),
+			code:        codes.InvalidArgument,
 		},
 		{
-			name:   "failure_duplicate_id",
-			laptop: laptopDuplicateId,
-			store:  storeDuplicateId,
-			code:   codes.AlreadyExists,
+			name:        "failure_duplicate_id",
+			laptop:      laptopDuplicateId,
+			laptopStore: storeDuplicateId,
+			code:        codes.AlreadyExists,
 		},
 	}
 
@@ -69,7 +69,7 @@ func TestServerCreateLaptop(t *testing.T) {
 				Laptop: tc.laptop,
 			}
 
-			server := service.NewLaptopServer(tc.store)
+			server := service.NewLaptopServer(tc.laptopStore, nil)
 			res, err := server.CreateLaptop(context.Background(), req)
 			if tc.code == codes.OK {
 				require.NoError(t, err)

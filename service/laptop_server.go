@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log"
 
 	"github.com/google/uuid"
@@ -11,16 +13,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const (
+	MAX_IMAGE_SIZE = 1 << 20 // 1 megabyte
+	// MAX_IMAGE_SIZE = 1 << 10 // 1 kilobyte
+)
+
 // LaptopServer is the server API for Laptop service.
 type LaptopServer struct {
 	pb.UnimplementedLaptopServiceServer
-	store LaptopStore
+	laptopStore LaptopStore
+	imageStore  ImageStore
 }
 
 // NewLaptopServer returns a new LaptopServer.
-func NewLaptopServer(store LaptopStore) *LaptopServer {
+func NewLaptopServer(laptopStore LaptopStore, imageStore ImageStore) *LaptopServer {
 	return &LaptopServer{
-		store: store,
+		laptopStore: laptopStore,
+		imageStore:  imageStore,
 	}
 }
 
@@ -46,19 +55,13 @@ func (s *LaptopServer) CreateLaptop(ctx context.Context, req *pb.CreateLaptopReq
 	// some heavy processing
 	// time.Sleep(6 * time.Second)
 
-	if ctx.Err() == context.Canceled {
-		log.Print("the client canceled the request")
-		return nil, status.Error(codes.Canceled, "the client canceled the request")
-	}
-
-	// check context deadline
-	if ctx.Err() == context.DeadlineExceeded {
-		log.Print("deadline exceeded")
-		return nil, status.Error(codes.DeadlineExceeded, "deadline exceeded")
+	// check context error
+	if err := contextError(ctx); err != nil {
+		return nil, err
 	}
 
 	// save the laptop in memory store
-	err := s.store.Save(laptop)
+	err := s.laptopStore.Save(laptop)
 	if err != nil {
 		code := codes.Internal
 		if errors.Is(err, ErrAlreadyExists) {
@@ -77,11 +80,12 @@ func (s *LaptopServer) CreateLaptop(ctx context.Context, req *pb.CreateLaptopReq
 	return res, nil
 }
 
+// SearchLaptop is a server-streaming RPC to search for laptops
 func (s *LaptopServer) SearchLaptop(req *pb.SearchLaptopRequest, stream pb.LaptopService_SearchLaptopServer) error {
 	filter := req.GetFilter()
 	log.Printf("receive a search-laptop request with filter: %v", filter)
 
-	err := s.store.Search(
+	err := s.laptopStore.Search(
 		stream.Context(),
 		filter,
 		func(laptop *pb.Laptop) error {
@@ -101,4 +105,102 @@ func (s *LaptopServer) SearchLaptop(req *pb.SearchLaptopRequest, stream pb.Lapto
 	}
 
 	return nil
+}
+
+// UploadImage is a client-streaming RPC to upload the laptop image
+func (s *LaptopServer) UploadImage(stream pb.LaptopService_UploadImageServer) error {
+	req, err := stream.Recv()
+	if err != nil {
+		return logErrors(status.Error(codes.Unknown, "cannot receive image info"))
+	}
+
+	laptopId := req.GetInfo().GetLaptopId()
+	imageType := req.GetInfo().GetImageType()
+	log.Printf("receive an image upload request for laptop %s with image type %s", laptopId, imageType)
+
+	laptop, err := s.laptopStore.Find(laptopId)
+	if err != nil {
+		return logErrors(status.Errorf(codes.Internal, "cannot find laptop: %v", err))
+	}
+	if laptop == nil {
+		return logErrors(status.Errorf(codes.InvalidArgument, "laptop %s not found", laptopId))
+	}
+
+	imageData := bytes.Buffer{}
+	imageSize := 0
+
+	for {
+		// check context error
+		if err := contextError(stream.Context()); err != nil {
+			return err
+		}
+
+		log.Print("waiting to receive more data")
+
+		req, err := stream.Recv()
+		if err == io.EOF {
+			log.Print("no more data")
+			break
+		}
+		if err != nil {
+			return logErrors(status.Errorf(codes.Unknown, "cannot receive chunk data: %v", err))
+		}
+
+		chunk := req.GetChunkData()
+		size := len(chunk)
+
+		log.Printf("received a chunk with size: %d", size)
+
+		imageSize += size
+		if imageSize > MAX_IMAGE_SIZE {
+			return logErrors(status.Errorf(codes.InvalidArgument, "image is too large: %d > %d", imageSize, MAX_IMAGE_SIZE))
+		}
+
+		// write slowly
+		// time.Sleep(1 * time.Second)
+
+		_, err = imageData.Write(chunk)
+		if err != nil {
+			return logErrors(status.Errorf(codes.Internal, "cannot write image data: %v", err))
+		}
+	}
+
+	imageId, err := s.imageStore.Save(laptopId, imageType, imageData)
+	if err != nil {
+		return logErrors(status.Errorf(codes.Internal, "cannot save image to the store: %v", err))
+	}
+
+	res := &pb.UploadImageResponse{
+		Id:   imageId,
+		Size: uint32(imageSize),
+	}
+
+	err = stream.SendAndClose(res)
+	if err != nil {
+		return logErrors(status.Errorf(codes.Unknown, "cannot send response: %v", err))
+	}
+
+	log.Printf("saved image with id: %s, size: %d", imageId, imageSize)
+	return nil
+}
+
+func contextError(ctx context.Context) error {
+	switch ctx.Err() {
+	// check context canceled
+	case context.Canceled:
+		return logErrors(status.Error(codes.Canceled, "the client canceled the request"))
+		// check context deadline
+	case context.DeadlineExceeded:
+		return logErrors(status.Error(codes.DeadlineExceeded, "deadline exceeded"))
+	}
+
+	return nil
+}
+
+func logErrors(err error) error {
+	if err != nil {
+		log.Print(err)
+	}
+
+	return err
 }

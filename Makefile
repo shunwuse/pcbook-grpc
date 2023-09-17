@@ -12,6 +12,7 @@ gen:
 
 clean:
 	rm pb/*.go
+	rm img/*
 
 test:
 	go test -cover -race ./...
