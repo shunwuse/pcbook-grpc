@@ -14,13 +14,13 @@ import (
 // LaptopServer is the server API for Laptop service.
 type LaptopServer struct {
 	pb.UnimplementedLaptopServiceServer
-	Store LaptopStore
+	store LaptopStore
 }
 
 // NewLaptopServer returns a new LaptopServer.
 func NewLaptopServer(store LaptopStore) *LaptopServer {
 	return &LaptopServer{
-		Store: store,
+		store: store,
 	}
 }
 
@@ -58,7 +58,7 @@ func (s *LaptopServer) CreateLaptop(ctx context.Context, req *pb.CreateLaptopReq
 	}
 
 	// save the laptop in memory store
-	err := s.Store.Save(laptop)
+	err := s.store.Save(laptop)
 	if err != nil {
 		code := codes.Internal
 		if errors.Is(err, ErrAlreadyExists) {
@@ -81,7 +81,7 @@ func (s *LaptopServer) SearchLaptop(req *pb.SearchLaptopRequest, stream pb.Lapto
 	filter := req.GetFilter()
 	log.Printf("receive a search-laptop request with filter: %v", filter)
 
-	err := s.Store.Search(
+	err := s.store.Search(
 		stream.Context(),
 		filter,
 		func(laptop *pb.Laptop) error {
