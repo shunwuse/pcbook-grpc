@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"log"
 	"time"
 
@@ -14,18 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func main() {
-	serverAddress := flag.String("address", "", "The server address")
-	flag.Parse()
-	log.Printf("Dial server on %s", *serverAddress)
-
-	conn, err := grpc.Dial(*serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Fatal("cannot dial server:", err)
-	}
-	defer conn.Close()
-
-	laptopClient := pb.NewLaptopServiceClient(conn)
+func createLaptop(laptopClient pb.LaptopServiceClient) {
 
 	laptop := sample.NewLaptop()
 	// laptop.Id = ""
@@ -52,4 +42,71 @@ func main() {
 	}
 
 	log.Printf("Created laptop with id: %s", res.Id)
+}
+
+func searchLaptop(laptopClient pb.LaptopServiceClient, filter *pb.Filter) {
+	log.Print("searching filter: ", filter)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req := &pb.SearchLaptopRequest{
+		Filter: filter,
+	}
+
+	stream, err := laptopClient.SearchLaptop(ctx, req)
+	if err != nil {
+		log.Fatal("cannot search laptop:", err)
+		return
+	}
+
+	for {
+		res, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			log.Fatal("cannot receive stream:", err)
+		}
+
+		laptop := res.GetLaptop()
+		log.Print("- found: ", laptop.GetId())
+		log.Print("  + brand: ", laptop.GetBrand())
+		log.Print("  + name: ", laptop.GetName())
+		log.Print("  + cpu cores: ", laptop.GetCpu().GetNumberCores())
+		log.Print("  + cpu min ghz: ", laptop.GetCpu().GetMinGhz())
+		log.Print("  + ram: ", laptop.GetRam())
+		log.Print("  + price: ", laptop.GetPrice())
+	}
+
+}
+
+func main() {
+	serverAddress := flag.String("address", "", "The server address")
+	flag.Parse()
+	log.Printf("Dial server on %s", *serverAddress)
+
+	conn, err := grpc.Dial(*serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatal("cannot dial server:", err)
+	}
+	defer conn.Close()
+
+	laptopClient := pb.NewLaptopServiceClient(conn)
+
+	for i := 0; i < 10; i++ {
+		createLaptop(laptopClient)
+	}
+
+	filter := &pb.Filter{
+		MaxPrice:    2000,
+		MinCpuCores: 4,
+		MinCpuGhz:   2.5,
+		MinRam: &pb.Memory{
+			Value: 8,
+			Unit:  pb.Memory_GIGABYTE,
+		},
+	}
+
+	searchLaptop(laptopClient, filter)
 }
