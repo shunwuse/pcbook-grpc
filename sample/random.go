@@ -86,6 +86,10 @@ func randomScreenPanel() pb.Screen_Panel {
 	return pb.Screen_OLED
 }
 
+func RandomLaptopScore() float64 {
+	return float64(randomInt(1, 10))
+}
+
 func randomStringFromSet(set ...string) string {
 	n := len(set)
 	if n == 0 {

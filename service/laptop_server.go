@@ -23,13 +23,15 @@ type LaptopServer struct {
 	pb.UnimplementedLaptopServiceServer
 	laptopStore LaptopStore
 	imageStore  ImageStore
+	ratingStore RatingStore
 }
 
 // NewLaptopServer returns a new LaptopServer.
-func NewLaptopServer(laptopStore LaptopStore, imageStore ImageStore) *LaptopServer {
+func NewLaptopServer(laptopStore LaptopStore, imageStore ImageStore, ratingStore RatingStore) *LaptopServer {
 	return &LaptopServer{
 		laptopStore: laptopStore,
 		imageStore:  imageStore,
+		ratingStore: ratingStore,
 	}
 }
 
@@ -181,6 +183,57 @@ func (s *LaptopServer) UploadImage(stream pb.LaptopService_UploadImageServer) er
 	}
 
 	log.Printf("saved image with id: %s, size: %d", imageId, imageSize)
+	return nil
+}
+
+// RateLaptop is a bidirectional-streaming RPC to rate a laptop
+func (s *LaptopServer) RateLaptop(stream pb.LaptopService_RateLaptopServer) error {
+	for {
+		err := contextError(stream.Context())
+		if err != nil {
+			return err
+		}
+
+		req, err := stream.Recv()
+		if err == io.EOF {
+			log.Print("no more data")
+			break
+		}
+		if err != nil {
+			return logErrors(status.Errorf(codes.Unknown, "cannot receive stream request: %v", err))
+		}
+
+		laptopId := req.GetLaptopId()
+		score := req.GetScore()
+
+		log.Printf("received a rate-laptop request: id = %s, score = %.2f", laptopId, score)
+
+		found, err := s.laptopStore.Find(laptopId)
+		if err != nil {
+			return logErrors(status.Errorf(codes.Internal, "cannot find laptop: %v", err))
+		}
+		if found == nil {
+			return logErrors(status.Errorf(codes.InvalidArgument, "laptopID %s not found", laptopId))
+		}
+
+		rating, err := s.ratingStore.Add(laptopId, score)
+		if err != nil {
+			return logErrors(status.Errorf(codes.Internal, "cannot add rating to the store: %v", err))
+		}
+
+		res := &pb.RateLaptopResponse{
+			LaptopId:     laptopId,
+			RatedCount:   rating.Count,
+			AverageScore: rating.Sum / float64(rating.Count),
+		}
+
+		err = stream.Send(res)
+		if err != nil {
+			return logErrors(status.Errorf(codes.Unknown, "cannot send stream response: %v", err))
+		}
+
+		// log.Printf("sent a rate-laptop response: %v", res)
+	}
 	return nil
 }
 
