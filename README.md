@@ -24,4 +24,7 @@ make client
 
 # run unit test
 make test
+
+# generate Certificates
+make cert
 ```

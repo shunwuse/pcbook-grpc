@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"github.com/warnshun/pcbook/pb"
 	"github.com/warnshun/pcbook/service"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -37,8 +39,14 @@ func main() {
 
 	laptopServer := service.NewLaptopServer(laptopStore, imageStore, ratingStore)
 
+	tlsCredentials, err := loadTLSCredentials()
+	if err != nil {
+		log.Fatal("cannot load TLS credentials:", err)
+	}
+
 	interceptoe := service.NewAuthInterceptor(jwtManager, accessibleRoles())
 	grpcServer := grpc.NewServer(
+		grpc.Creds(tlsCredentials),
 		grpc.UnaryInterceptor(interceptoe.Unary()),
 		grpc.StreamInterceptor(interceptoe.Stream()),
 	)
@@ -57,6 +65,22 @@ func main() {
 	if err != nil {
 		log.Fatal("cannot start server:", err)
 	}
+}
+
+func loadTLSCredentials() (credentials.TransportCredentials, error) {
+	// load server's certificate and private key
+	serverCert, err := tls.LoadX509KeyPair("cert/server-cert.pem", "cert/server-key.pem")
+	if err != nil {
+		return nil, err
+	}
+
+	// create a credentials instance and return it
+	config := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.NoClientCert,
+	}
+
+	return credentials.NewTLS(config), nil
 }
 
 func seedUsers(userStore service.UserStore) error {

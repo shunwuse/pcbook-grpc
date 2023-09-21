@@ -17,4 +17,7 @@ clean:
 test:
 	go test -cover -race ./...
 
-.PHONY: run server client gen clean test
+cert:
+	cd cert; ./gen.sh; cd ..
+
+.PHONY: run server client gen clean test cert
