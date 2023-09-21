@@ -89,6 +89,12 @@ func authMethods() map[string]bool {
 }
 
 func loadTLSCredentials() (credentials.TransportCredentials, error) {
+	// load client's certificate and private key
+	clientCert, err := tls.LoadX509KeyPair("cert/client-cert.pem", "cert/client-key.pem")
+	if err != nil {
+		return nil, err
+	}
+
 	// load certificate of the CA who signed server's certificate
 	pemServerCA, err := os.ReadFile("cert/ca-cert.pem")
 	if err != nil {
@@ -103,7 +109,8 @@ func loadTLSCredentials() (credentials.TransportCredentials, error) {
 
 	// create the credentials instance and return it
 	config := &tls.Config{
-		RootCAs: certPool,
+		Certificates: []tls.Certificate{clientCert},
+		RootCAs:      certPool,
 	}
 
 	return credentials.NewTLS(config), nil
